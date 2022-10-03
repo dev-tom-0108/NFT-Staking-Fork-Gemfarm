@@ -35,6 +35,54 @@ pub mod staking {
         user_pool.owner = ctx.accounts.owner.key();
         Ok(())
     }
+
+    pub fn create_farm(
+        ctx: Context<CreateFarm>,
+        tier_duration: Vec<i64>,
+        tier_rate: Vec<u64>,
+        max_stake_count: u64,
+        count: u64
+    ) -> Result<()> {
+        let global_authority = &mut ctx.accounts.global_authority;
+        let mut farm_pool = ctx.accounts.farm_pool.load_init()?;
+
+        // rquuire!(ctx.accounts.admin.key == ADMIN.parse::<Pubkey>().unwrap(), );
+        require!(global_authority.farm_count + 1 == count, StakingError::InvalidFarmCount);
+        require!(tier_duration.len() == tier_rate.len(), StakingError::InvalidInput);
+        farm_pool.farm_number = count;
+        farm_pool.max_stake_count = max_stake_count;
+        for i in 0..4 {
+            msg!("Tier Duration {:?} and Rate {:?}", tier_duration[i as usize], tier_rate[i as usize]);
+            farm_pool.tier_duration[i as usize] = tier_duration[i as usize];
+            farm_pool.tier_rate[i as usize] = tier_rate[i as usize];
+        }
+
+        global_authority.farm_count += 1;
+
+        Ok(())
+    }
+
+    pub fn update_farm(
+        ctx: Context<UpdateFarm>,
+        new_tier_duration: Vec<i64>,
+        new_tier_rate: Vec<u64>,
+        max_stake_count: u64,
+    ) -> Result<()> {
+        let mut farm_pool = ctx.accounts.farm_pool.load_mut()?;
+        let global_authority = &mut ctx.accounts.global_authority;
+
+        require!(global_authority.super_admin.key() == ctx.accounts.admin.key(), 
+            StakingError::InvalidSuperOwner);
+
+        for i in 0..4 {
+            farm_pool.tier_duration[i] = new_tier_duration[i];
+            farm_pool.tier_rate[i] = new_tier_rate[i];
+        }
+
+        farm_pool.max_stake_count = max_stake_count;
+
+        Ok(())
+    }
 }
 
 
@@ -75,3 +123,35 @@ pub struct InitializeUserPool<'info> {
     pub owner: Signer<'info>,
 }
 
+
+#[derive(Accounts)]
+pub struct CreateFarm<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    
+    #[account(
+        mut,
+        seeds = [GLOBAL_AUTHORITY_SEED.as_ref()],
+        bump,
+    )]
+    pub global_authority: Account<'info, GlobalPool>,
+
+    #[account(zero)]
+    pub farm_pool: AccountLoader<'info, FarmData>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateFarm<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [GLOBAL_AUTHORITY_SEED.as_ref()],
+        bump,
+    )]
+    pub global_authority: Account<'info, GlobalPool>,
+    
+    #[account(mut)]
+    pub farm_pool: AccountLoader<'info, FarmData>,
+}
