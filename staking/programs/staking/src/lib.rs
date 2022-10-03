@@ -28,6 +28,13 @@ pub mod staking {
         Ok(())
     }
 
+    pub fn initialize_user_pool(
+        ctx: Context<InitializeUserPool>
+    ) -> Result<()> {
+        let mut user_pool = ctx.accounts.user_pool.load_init()?;
+        user_pool.owner = ctx.accounts.owner.key();
+        Ok(())
+    }
 }
 
 
@@ -58,3 +65,13 @@ pub struct Initialize<'info> {
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>
 }
+
+#[derive(Accounts)]
+pub struct InitializeUserPool<'info> {
+    #[account(zero)]
+    pub user_pool: AccountLoader<'info, UserPool>,
+
+    #[account(mut)]
+    pub owner: Signer<'info>,
+}
+
