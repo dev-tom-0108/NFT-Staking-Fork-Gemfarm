@@ -294,6 +294,41 @@ pub mod staking {
         Ok(())
     }
 
+    #[access_control(user(&ctx.accounts.user_pool, &ctx.accounts.owner))]
+    pub fn claim_reward(
+        ctx: Context<ClaimReward>,
+        global_bump: u8
+    ) -> Result<()> {
+        let farm_pool = ctx.accounts.farm_pool.load_mut()?;
+        require!(farm_pool.is_stop == false, StakingError::PoolStopped);
+        
+        let mut user_pool = ctx.accounts.user_pool.load_mut()?;
+        msg!("Staked Mint: {:?}", ctx.accounts.nft_mint.key());
+
+        let global_authority = &mut ctx.accounts.global_authority;
+
+        let timestamp = Clock::get()?.unix_timestamp;
+        let reward: u64 = user_pool.claim_reward(ctx.accounts.nft_mint.key(), farm_pool.tier_duration, farm_pool.tier_rate, timestamp)?;
+        msg!("Reward: {:?} Unstaked Time: {}", reward, timestamp);
+
+        // TODO
+        let token_program = &mut &ctx.accounts.token_program;
+        let seeds = &[GLOBAL_AUTHORITY_SEED.as_bytes(), &[global_bump]];
+        let signer = &[&seeds[..]];
+
+        let cpi_accounts = MintTo {
+            mint: ctx.accounts.reward_mint.to_account_info().clone(),
+            to: ctx.accounts.user_reward_account.to_account_info().clone(),
+            authority: global_authority.to_account_info().clone(),
+        };
+        token::mint_to(
+            CpiContext::new_with_signer(token_program.clone().to_account_info(), cpi_accounts, signer),
+            reward
+        )?;
+
+        Ok(())
+    }
+
 }
 
 
@@ -529,6 +564,42 @@ pub struct UnstakeNftFromPool<'info> {
     )]
     pub user_reward_account: Box<Account<'info, TokenAccount>>,
     
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(mut)]
+    pub reward_mint: AccountInfo<'info>,
+
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub nft_mint: AccountInfo<'info>,
+    pub token_program: Program<'info, Token>,
+}
+
+
+#[derive(Accounts)]
+#[instruction(bump: u8)]
+pub struct ClaimReward<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+ 
+    #[account(mut)]
+    pub user_pool: AccountLoader<'info, UserPool>,
+
+    #[account(mut)]
+    pub farm_pool: AccountLoader<'info, FarmData>,
+
+    #[account(
+        mut,
+        seeds = [GLOBAL_AUTHORITY_SEED.as_ref()],
+        bump,
+    )]
+    pub global_authority: Box<Account<'info, GlobalPool>>,
+
+    #[account(
+        mut,
+        constraint = user_reward_account.mint == *reward_mint.key,
+        constraint = user_reward_account.owner == *owner.key,
+    )]
+    pub user_reward_account: Box<Account<'info, TokenAccount>>,
+
     /// CHECK: This is not dangerous because we don't read or write from this account
     #[account(mut)]
     pub reward_mint: AccountInfo<'info>,
