@@ -83,6 +83,39 @@ pub mod staking {
 
         Ok(())
     }
+
+    pub fn add_whitelist(
+        ctx: Context<AddWhitelist>,
+        is_collection: bool
+    ) -> Result<()> {
+        let global_authority = &mut ctx.accounts.global_authority;
+        if global_authority.super_admin != ctx.accounts.admin.key() {
+            return Err(error!(StakingError::InvalidSuperOwner));
+        }
+        let whitelist_proof = &mut ctx.accounts.whitelist_proof;
+
+        whitelist_proof.whitelist_address = ctx.accounts.whitelist_address.key();
+        whitelist_proof.is_collection = is_collection;
+        Ok(())
+    }
+
+    pub fn remove_whitelist(
+        ctx: Context<RemoveWhitelist>,
+    ) -> Result<()> {
+        let global_authority = &mut ctx.accounts.global_authority;
+        if global_authority.super_admin != ctx.accounts.admin.key() {
+            return Err(error!(StakingError::InvalidSuperOwner));
+        }
+        let whitelist_proof = &mut ctx.accounts.whitelist_proof;
+        require!(!whitelist_proof.to_account_info().data_is_empty(), StakingError::InvalidWhitelistAddress);
+
+        let admin = &mut ctx.accounts.admin;
+        let starting_lamports: u64 = admin.lamports();
+        **admin.lamports.borrow_mut() = starting_lamports + whitelist_proof.to_account_info().lamports();
+        **whitelist_proof.to_account_info().lamports.borrow_mut() = 0;
+        
+        Ok(())
+    }
 }
 
 
@@ -154,4 +187,59 @@ pub struct UpdateFarm<'info> {
     
     #[account(mut)]
     pub farm_pool: AccountLoader<'info, FarmData>,
+}
+
+
+#[derive(Accounts)]
+pub struct AddWhitelist<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [GLOBAL_AUTHORITY_SEED.as_ref()],
+        bump,
+    )]
+    pub global_authority: Account<'info, GlobalPool>,
+    #[account(mut)]
+    pub farm_pool: AccountLoader<'info, FarmData>,
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(mut)]
+    pub whitelist_address: AccountInfo<'info>,
+
+    #[account(
+        init,
+        seeds = [whitelist_address.key().as_ref(), farm_pool.key().as_ref()],
+        bump,
+        space = 8 + 33,
+        payer = admin
+    )]
+    pub whitelist_proof: Account<'info, WhitelistProof>,
+
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>
+}
+
+#[derive(Accounts)]
+pub struct RemoveWhitelist<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [GLOBAL_AUTHORITY_SEED.as_ref()],
+        bump,
+    )]
+    pub global_authority: Account<'info, GlobalPool>,
+    #[account(mut)]
+    pub farm_pool: AccountLoader<'info, FarmData>,
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    #[account(mut)]
+    pub whitelist_address: AccountInfo<'info>,
+
+    #[account(
+        mut,
+        seeds = [whitelist_address.key().as_ref(), farm_pool.key().as_ref()],
+        bump,
+    )]
+    pub whitelist_proof: Account<'info, WhitelistProof>,
+
 }
