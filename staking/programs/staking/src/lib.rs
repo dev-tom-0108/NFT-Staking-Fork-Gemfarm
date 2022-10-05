@@ -329,6 +329,62 @@ pub mod staking {
         Ok(())
     }
 
+    pub fn transfer_mint_authority(
+        ctx: Context<TransferAuthority>,
+        global_bump: u8,
+    ) -> Result<()> {
+        let global_authority = &mut ctx.accounts.global_authority;
+        let new_authority = &mut ctx.accounts.new_authority;
+        require!(ctx.accounts.admin.key() == global_authority.super_admin, StakingError::InvalidSuperOwner);
+        
+        msg!("Transfer mintAuthority: {:?}", new_authority);
+        
+        let reward_mint = &mut ctx.accounts.reward_mint;
+        let token_program = &mut ctx.accounts.token_program;
+
+        let seeds = &[GLOBAL_AUTHORITY_SEED.as_bytes(), &[global_bump]];
+        let signer = &[&seeds[..]];
+        let cpi_accounts = SetAuthority {
+            current_authority: global_authority.to_account_info().clone(),
+            account_or_mint: reward_mint.to_account_info().clone(),
+        };
+
+        token::set_authority(
+            CpiContext::new_with_signer(token_program.clone().to_account_info(), cpi_accounts, signer),
+            spl_token::instruction::AuthorityType::MintTokens,
+            Some(new_authority.key()),
+        )?;
+
+        Ok(())
+    }
+
+    pub fn mint_to_account(
+        ctx: Context<MintToAccount>,
+        global_bump: u8,
+        amount: u64
+    ) -> Result<()> {
+        let global_authority = &mut ctx.accounts.global_authority;
+        let user_reward_account = &mut ctx.accounts.user_reward_account;
+        // require!(ctx.accounts.admin.key() == global_authority.super_admin, StakingError::InvalidSuperOwner);
+        
+        msg!("Transfer mintAuthority: {:?}", user_reward_account.key());
+        
+        let token_program = &mut ctx.accounts.token_program;
+        let seeds = &[GLOBAL_AUTHORITY_SEED.as_bytes(), &[global_bump]];
+        let signer = &[&seeds[..]];
+
+        let cpi_accounts = MintTo {
+            mint: ctx.accounts.reward_mint.to_account_info().clone(),
+            to: ctx.accounts.user_reward_account.to_account_info().clone(),
+            authority: global_authority.to_account_info().clone(),
+        };
+        token::mint_to(
+            CpiContext::new_with_signer(token_program.clone().to_account_info(), cpi_accounts, signer),
+            amount
+        )?;
+
+        Ok(())
+    }
 }
 
 
@@ -607,4 +663,59 @@ pub struct ClaimReward<'info> {
     /// CHECK: This is not dangerous because we don't read or write from this account
     pub nft_mint: AccountInfo<'info>,
     pub token_program: Program<'info, Token>,
+}
+
+
+#[derive(Accounts)]
+pub struct TransferAuthority<'info> {
+    #[account(
+        mut,
+        seeds = [GLOBAL_AUTHORITY_SEED.as_ref()],
+        bump,
+    )]
+    pub global_authority: Box<Account<'info, GlobalPool>>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+    #[account(mut)]
+    pub reward_mint: Box<Account<'info, Mint>>,
+
+    #[account(mut)]
+    /// CHECK: This is not dangerous because we don't read or write from this account
+    pub new_authority: AccountInfo<'info>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+pub struct MintToAccount<'info> {
+    #[account(
+        mut,
+        seeds = [GLOBAL_AUTHORITY_SEED.as_ref()],
+        bump,
+    )]
+    pub global_authority: Box<Account<'info, GlobalPool>>,
+
+    #[account(mut)]
+    pub admin: Signer<'info>,
+
+   /// CHECK: This is not dangerous because we don't read or write from this account
+   #[account(mut)]
+   pub reward_mint: AccountInfo<'info>,
+
+    #[account(
+        mut,
+        constraint = user_reward_account.mint == reward_mint.key()
+    )]
+    pub user_reward_account: Box<Account<'info, TokenAccount>>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+// Access control modifiers
+fn user(pool_loader: &AccountLoader<UserPool>, user: &AccountInfo) -> Result<()> {
+    let user_pool = pool_loader.load()?;
+    require!(user_pool.owner == *user.key, StakingError::InvalidUserPool);
+    Ok(())
 }
