@@ -586,6 +586,134 @@ export const getUserPoolInfo = async (
     };
 }
 
+
+/**
+ * Claim Reward function
+ * @param userAddress The caller address
+ * @param farmPool The farmPool address
+ * @param mint The NFT mint address
+ */
+ export const claimReward = async (
+    userAddress: PublicKey,
+    farmPool: PublicKey,
+    mint: PublicKey,
+) => {
+
+    let info =  await getGlobalState(program);
+    let rewardMint = info.rewardToken;
+
+    let ret = await getATokenAccountsNeedCreate(
+        solConnection,
+        userAddress,
+        userAddress,
+        [rewardMint]
+    );
+
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID
+    );
+
+    let userPoolKey = await anchor.web3.PublicKey.createWithSeed(
+        userAddress,
+        "user-pool",
+        STAKING_PROGRAM_ID,
+    );
+
+    let tx = new Transaction();
+    console.log('==> Claiming Reward ... ', mint.toBase58());
+    if (ret.instructions.length > 0) ret.instructions.map((ix) => tx.add(ix));
+    tx.add(program.instruction.claimReward(
+        bump, {
+        accounts: {
+            owner: userAddress,
+            userPool: userPoolKey,
+            farmPool,
+            globalAuthority,
+            userRewardAccount: ret.destinationAccounts[0],
+            rewardMint,
+            nftMint: mint,
+            tokenProgram: TOKEN_PROGRAM_ID,
+        },
+        instructions: [],
+        signers: [],
+    }));
+    const { blockhash } = await solConnection.getRecentBlockhash('confirmed');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "confirmed");
+    console.log("Your transaction signature", txId);
+}
+
+/**
+ * Withdraw NFT function
+ * @param userAddress The caller address
+ * @param farmPool The farmPool address
+ * @param mint The NFT mint address
+ */
+export const withdrawNft = async (
+    userAddress: PublicKey,
+    farmPool: PublicKey,
+    mint: PublicKey,
+) => {
+
+    let info =  await getGlobalState(program);
+    let rewardMint = info.rewardToken;
+
+    let ret = await getATokenAccountsNeedCreate(
+        solConnection,
+        userAddress,
+        userAddress,
+        [mint, rewardMint]
+    );
+    let userTokenAccount = ret.destinationAccounts[0];
+    console.log("User NFT = ", mint.toBase58(), userTokenAccount.toBase58());
+
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID
+    );
+    let destNftTokenAccount = await getAssociatedTokenAccount(globalAuthority, mint);
+
+    let userPoolKey = await anchor.web3.PublicKey.createWithSeed(
+        userAddress,
+        "user-pool",
+        STAKING_PROGRAM_ID,
+    );
+
+    let tx = new Transaction();
+    console.log('==> Withdrawing ... ', mint.toBase58());
+    if (ret.instructions.length > 0) ret.instructions.map((ix) => tx.add(ix));
+    tx.add(program.instruction.unstakeNftFromPool(
+        bump, {
+        accounts: {
+            owner: userAddress,
+            userPool: userPoolKey,
+            farmPool,
+            globalAuthority,
+            userNftTokenAccount: userTokenAccount,
+            destNftTokenAccount,
+            userRewardAccount: ret.destinationAccounts[1],
+            rewardMint,
+            nftMint: mint,
+            tokenProgram: TOKEN_PROGRAM_ID,
+        },
+        instructions: [],
+        signers: [],
+    }));
+    const { blockhash } = await solConnection.getRecentBlockhash('confirmed');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "confirmed");
+    console.log("Your transaction signature", txId);
+}
+
+
+
 export const getGlobalInfo = async () => {
     const globalPool: GlobalPool = await getGlobalState(program);
     const result = {
