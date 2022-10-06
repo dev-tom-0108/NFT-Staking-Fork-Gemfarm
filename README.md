@@ -1,4 +1,4 @@
-# Custom Staking Program
+# NFT Staking Program Forked from Gemfarm
 This project is the staking program with minting rewards and have many farm pools which have different reward logic.
 
 ## Install Dependencies
