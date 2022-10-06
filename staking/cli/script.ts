@@ -149,6 +149,218 @@ export const initUserPool = async (
     console.log("Your transaction signature", txId);
 }
 
+
+/**
+ * Create the Farm function
+ * @param userAddress The userAddress who create farm - admin address
+ * @param duration The tier_duration[4]
+ * @param rate The tier_rate[4]
+ * @param maxCount The max stake count for the Farm Pool
+ */
+ export const createFarm = async (
+    userAddress: PublicKey,
+    duration: number[],
+    rate: number[],
+    maxCount: number
+) => {
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID,
+    );
+    
+    let info = await getGlobalState(program);
+    let count = info.farmCount.toNumber() + 1;
+    console.log("Farm count is : ", count);
+
+    let tduration: anchor.BN[] = [];
+    let trate: anchor.BN[]= [];
+    for(let i = 0; i < 4; i++) { 
+        tduration[i] = new anchor.BN(duration[i]);
+        trate[i] = new anchor.BN(rate[i] * DECIMALS);
+    }
+
+    let farmKey = await anchor.web3.PublicKey.createWithSeed(
+        userAddress,
+        count.toString(),
+        STAKING_PROGRAM_ID,
+    );
+    console.log(FARM_POOL_SIZE);
+    let ix = SystemProgram.createAccountWithSeed({
+        fromPubkey: userAddress,
+        basePubkey: userAddress,
+        seed: count.toString(),
+        newAccountPubkey: farmKey,
+        lamports: await solConnection.getMinimumBalanceForRentExemption(FARM_POOL_SIZE),
+        space: FARM_POOL_SIZE,
+        programId: STAKING_PROGRAM_ID,
+    });
+
+    let tx = new Transaction();
+    console.log('==>Creating Farm ', farmKey.toBase58());
+    tx.add(ix);
+    tx.add(program.instruction.createFarm(
+        tduration, trate, new anchor.BN(maxCount), new anchor.BN(count), {
+            accounts: {
+                admin: userAddress,
+                globalAuthority,
+                farmPool: farmKey
+            },
+            instructions: [],
+            signers: []
+        }
+    ));
+
+    const { blockhash } = await solConnection.getRecentBlockhash('finalized');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "finalized");
+    console.log("Your transaction signature", txId);
+}
+
+/**
+ * Update Farm function
+ * @param userAddress The userAddress to update the farm info
+ * @param farmKey The farmPool's address
+ * @param duration The tier_duration[4]
+ * @param rate The tier_rate[4]
+ * @param maxCount The available max stake count for the farm pool
+ */
+export const updateFarm = async (
+    userAddress: PublicKey,
+    farmKey: PublicKey,
+    duration: number[],
+    rate: number[],
+    maxCount: number
+) => {
+    let tduration: anchor.BN[] = [];
+    let trate: anchor.BN[]= [];
+    for(let i = 0; i < 4; i++) { 
+        tduration[i] = new anchor.BN(duration[i]);
+        trate[i] = new anchor.BN(rate[i] * DECIMALS);
+    }
+    let tx = new Transaction();
+    console.log('==>Updating Farm ', farmKey.toBase58());
+    tx.add(program.instruction.updateFarm(
+        tduration, trate, new anchor.BN(maxCount), {
+            accounts: {
+                admin: userAddress,
+                farmPool: farmKey
+            },
+            instructions: [],
+            signers: []
+        }
+    ));
+
+    const { blockhash } = await solConnection.getRecentBlockhash('finalized');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "finalized");
+    console.log("Your transaction signature", txId);
+}
+
+/**
+ * Add Whitelist Address function
+ * @param userAddress The userAddress to add the whitelist info
+ * @param whitelistAddress The address of whitelist NFT mint or collection
+ * @param farmPool Farmpool address
+ * @param isCollection Check if it is collection or mint address
+ *  */
+export const addWhitelist = async (
+    userAddress: PublicKey,
+    whitelistAddress: PublicKey,
+    farmPool: PublicKey,
+    isCollection: Boolean
+) => {
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID,
+    );
+
+    const [whitelistProof, wlbump] = await PublicKey.findProgramAddress(
+        [whitelistAddress.toBuffer(), farmPool.toBuffer()],
+        STAKING_PROGRAM_ID,
+    );
+    let tx = new Transaction();
+    console.log('==>Adding Whitelist', whitelistAddress.toBase58());
+
+    tx.add(program.instruction.addWhitelist(
+        isCollection, {
+            accounts: {
+                admin: userAddress,
+                globalAuthority,
+                farmPool,
+                whitelistAddress,
+                whitelistProof,
+                systemProgram: SystemProgram.programId,
+                rent: SYSVAR_RENT_PUBKEY,
+            },
+            instructions: [],
+            signers: []
+        }
+    ));
+
+    const { blockhash } = await solConnection.getRecentBlockhash('finalized');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "finalized");
+    console.log("Your transaction signature", txId);
+}
+
+
+/**
+ * Remove Whitelist Address function
+ * @param userAddress The userAddress to remove the whitelist info
+ * @param whitelistAddress The address of whitelist NFT mint or collection
+ * @param farmPool Farmpool address
+ *  */
+ export const removeWhitelist = async (
+    userAddress: PublicKey,
+    whitelistAddress: PublicKey,
+    farmPool: PublicKey,
+) => {
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID,
+    );
+
+    const [whitelistProof, wlbump] = await PublicKey.findProgramAddress(
+        [whitelistAddress.toBuffer(), farmPool.toBuffer()],
+        STAKING_PROGRAM_ID,
+    );
+    console.log(whitelistProof.toBase58());
+    let tx = new Transaction();
+    console.log('==>Removing Whitelist', whitelistAddress.toBase58());
+
+    tx.add(program.instruction.removeWhitelist(
+        {
+            accounts: {
+                admin: userAddress,
+                globalAuthority,
+                farmPool,
+                whitelistAddress,
+                whitelistProof,
+            },
+            instructions: [],
+            signers: []
+        }
+    ));
+
+    const { blockhash } = await solConnection.getRecentBlockhash('finalized');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "finalized");
+    console.log("Your transaction signature", txId);
+}
+
+
 export const getUserPoolInfo = async (
     userAddress: PublicKey,
 ) => {
