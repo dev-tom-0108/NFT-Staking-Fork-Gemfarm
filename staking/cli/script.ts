@@ -60,6 +60,34 @@ const main = async () => {
     );
     console.log('GlobalAuthority: ', globalAuthority.toBase58());
 
+    await initProject(payer.publicKey);
+
+    // await initUserPool(payer.publicKey);
+
+    // await createFarm(payer.publicKey, [100, 100, 500, 0], [0.1, 0.2, 0.3, 0.4], 10);
+    // let farmKey = await anchor.web3.PublicKey.createWithSeed(
+    //     payer.publicKey,
+    //     "3",
+    //     STAKING_PROGRAM_ID,
+    // );
+    // let farm  = await getFarmState(farmKey, program);
+    // console.log(farm);
+
+    // await updateFarm(payer.publicKey, farmKey, [100, 100, 500, 0], [0.1, 0.2, 0.3, 0.4], 5);
+    
+    // await addWhitelist(payer.publicKey, new PublicKey("FvVKssmkvAxTh1P9WLtoiCQExss4rpmt3ddqiap4eK3r"), farmKey, false);
+
+    // await removeWhitelist(payer.publicKey, new PublicKey("FvVKssmkvAxTh1P9WLtoiCQExss4rpmt3ddqiap4eK3r"), farmKey);
+    // await setStop(payer.publicKey, farmKey, false);
+
+    // await stakeNFT(payer.publicKey, farmKey, new PublicKey("6VhfWNv5DzAw29AZBkL2Cm58gmQpbQ5dFMFijUwZQUHY"));
+   
+    // console.log(await calculateReward(payer.publicKey, farmKey, new PublicKey("Gmiwm1T77ViiNRuhegH5zdVGyUarDLWeZ7gsJXudQWoE")));
+    // await claimReward(payer.publicKey, farmKey, new PublicKey("Gmiwm1T77ViiNRuhegH5zdVGyUarDLWeZ7gsJXudQWoE"));
+   
+    // await withdrawNft(payer.publicKey, farmKey, new PublicKey("6VhfWNv5DzAw29AZBkL2Cm58gmQpbQ5dFMFijUwZQUHY"));
+
+    // await transferMintAuth(payer.publicKey, payer.publicKey);
 
 };
 
