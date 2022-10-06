@@ -713,6 +713,99 @@ export const withdrawNft = async (
 }
 
 
+/**
+ * Transfer Mint Authority
+ * @param userAddress The caller address
+ * @param newAuthority The new Authority address
+ */
+ export const transferMintAuth = async (
+    userAddress: PublicKey,
+    newAuthority: PublicKey,
+) => {
+
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID
+    );
+
+    let info =  await getGlobalState(program);
+    let rewardMint = info.rewardToken;
+
+    let tx = new Transaction();
+    console.log('==> Transfering Authority ... ');
+    tx.add(program.instruction.transferMintAuthority(
+        bump, {
+        accounts: {
+            admin: userAddress,
+            globalAuthority,
+            rewardMint,
+            newAuthority,
+            tokenProgram: TOKEN_PROGRAM_ID,
+        },
+        instructions: [],
+        signers: [],
+    }));
+    const { blockhash } = await solConnection.getRecentBlockhash('confirmed');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "confirmed");
+    console.log("Your transaction signature", txId);
+}
+
+
+/**
+ * Mint To Account
+ * @param userAddress The caller address
+ * @param receiver The receiver Address
+ * @param amount The amount to mint to the specific account
+ */
+ export const mintToAccount = async (
+    userAddress: PublicKey,
+    receiver: PublicKey,
+    amount: number
+) => {
+
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID
+    );
+
+    let info =  await getGlobalState(program);
+    let rewardMint = info.rewardToken;
+
+    let { instructions, destinationAccounts } = await getATokenAccountsNeedCreate(
+        solConnection,
+        userAddress,
+        receiver,
+        [rewardMint]
+    );
+
+    let tx = new Transaction();
+    console.log('==> Minting To Account ... ');
+    if (instructions.length > 0) instructions.map((ix) => tx.add(ix));
+    tx.add(program.instruction.mintToAccount(
+        bump, new anchor.BN(amount*DECIMALS), {
+        accounts: {
+            admin: userAddress,
+            globalAuthority,
+            rewardMint,
+            userRewardAccount: destinationAccounts[0],
+            tokenProgram: TOKEN_PROGRAM_ID,
+        },
+        instructions: [],
+        signers: [],
+    }));
+    const { blockhash } = await solConnection.getRecentBlockhash('confirmed');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "confirmed");
+    console.log("Your transaction signature", txId);
+}
+
 
 export const getGlobalInfo = async () => {
     const globalPool: GlobalPool = await getGlobalState(program);
