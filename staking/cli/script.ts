@@ -64,6 +64,91 @@ const main = async () => {
 };
 
 
+/**
+ * Initialize the project
+ * @param userAddress The userAddress to initProject
+ */
+ export const initProject = async (
+    userAddress: PublicKey
+) => {
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID,
+    );
+
+    let key = Keypair.generate();
+    let tx = new Transaction();
+    console.log('==>Initializing Program');
+
+    tx.add(program.instruction.initialize(
+        bump, {
+        accounts: {
+            admin: userAddress,
+            globalAuthority,
+            rewardToken: key.publicKey,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            rent: SYSVAR_RENT_PUBKEY,
+        },
+        instructions: [],
+        signers: [key],
+    }));
+    const { blockhash } = await solConnection.getRecentBlockhash('confirmed');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer, key]);
+    await solConnection.confirmTransaction(txId, "confirmed");
+    console.log("txHash =", txId);
+}
+
+
+/**
+ * Initialize the user's Pool
+ * @param userAddress The user's address
+ */
+export const initUserPool = async (
+    userAddress: PublicKey
+) => {
+    let userPoolKey = await anchor.web3.PublicKey.createWithSeed(
+        userAddress,
+        "user-pool",
+        STAKING_PROGRAM_ID,
+    );
+    console.log(USER_POOL_SIZE);
+    let ix = SystemProgram.createAccountWithSeed({
+        fromPubkey: userAddress,
+        basePubkey: userAddress,
+        seed: "user-pool",
+        newAccountPubkey: userPoolKey,
+        lamports: await solConnection.getMinimumBalanceForRentExemption(USER_POOL_SIZE),
+        space: USER_POOL_SIZE,
+        programId: STAKING_PROGRAM_ID,
+    });
+
+    let tx = new Transaction();
+    console.log('==>initializing user PDA', userPoolKey.toBase58());
+    tx.add(ix);
+    tx.add(program.instruction.initializeUserPool(
+        {
+            accounts: {
+                userPool: userPoolKey,
+                owner: userAddress
+            },
+            instructions: [],
+            signers: []
+        }
+    ));
+
+    const { blockhash } = await solConnection.getRecentBlockhash('finalized');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "finalized");
+    console.log("Your transaction signature", txId);
+}
+
 export const getUserPoolInfo = async (
     userAddress: PublicKey,
 ) => {
