@@ -361,6 +361,213 @@ export const addWhitelist = async (
 }
 
 
+/**
+ * Stop/Start Farm function
+ * @param userAddress The function caller
+ * @param farmPool The farmPool address to stop/start
+ * @param isStop True: stop the farm, False: start the farm
+ */
+ export const setStop = async (
+    userAddress: PublicKey,
+    farmPool: PublicKey,
+    isStop: Boolean
+) => {
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID,
+    );
+
+    
+    let tx = new Transaction();
+    console.log('==>Stop/Start the farm', farmPool.toBase58());
+
+    tx.add(program.instruction.setStop(
+        isStop, {
+            accounts: {
+                admin: userAddress,
+                globalAuthority,
+                farmPool,
+            },
+            instructions: [],
+            signers: []
+        }
+    ));
+
+    const { blockhash } = await solConnection.getRecentBlockhash('finalized');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "finalized");
+    console.log("Your transaction signature", txId);
+}
+
+/**
+ * 
+ * @param userAddress The caller Address
+ * @param farmPool The farmPool address
+ * @param nftMint NFT mint address
+ * @returns 
+ */
+export const calculateReward = async (
+    userAddress: PublicKey,
+    farmPool: PublicKey,
+    nftMint: PublicKey
+) => {
+    const globalPool: GlobalPool | null = await getGlobalState(program);
+    if (globalPool === null) return 0;
+
+    const userPool: UserPool | null = await getUserPoolState(userAddress, program);
+    if (userPool === null) return 0;
+
+    const farmData: FarmData | null = await getFarmState(farmPool, program);
+    if (farmData === null) return 0;
+
+    
+    let slot = await solConnection.getSlot();
+    let now = await solConnection.getBlockTime(slot);
+    if (now === null) return 0;
+    let reward = 0;
+    
+    for (let i = 0; i < userPool.stakedCount.toNumber(); i++) {
+        if (userPool.staking[i].mint.toBase58() === nftMint.toBase58()) {
+            let duration = now - userPool.staking[i].claimedTime.toNumber();
+            for (let j = 0;  j < 3; j++){
+                if (duration >= farmData.tierDuration[j].toNumber()) {
+                    reward += farmData.tierDuration[j].toNumber() * farmData.tierRate[j].toNumber();
+                    duration -= farmData.tierDuration[j].toNumber();
+                } else {
+                    reward += duration * farmData.tierRate[j].toNumber();
+                    duration = 0;
+                    break;
+                }
+            }
+            if (duration != 0) {
+                reward += duration * farmData.tierRate[3].toNumber();
+            }
+            return reward;
+        }
+    }
+    return 0;
+
+}
+
+/**
+ * The Stake NFT function
+ * @param userAddress The caller Address
+ * @param farmPool The farmPool address
+ * @param mint NFT mint address
+ * @returns 
+ */
+export const stakeNFT = async (
+    userAddress: PublicKey,
+    farmPool: PublicKey,
+    mint: PublicKey,
+) => {
+    let userPoolKey = await anchor.web3.PublicKey.createWithSeed(
+        payer.publicKey,
+        "user-pool",
+        STAKING_PROGRAM_ID,
+    );
+
+    let poolAccount = await solConnection.getAccountInfo(userPoolKey);
+    if (poolAccount === null || poolAccount.data === null) {
+        await initUserPool(payer.publicKey);
+    }
+
+    const [globalAuthority, bump] = await PublicKey.findProgramAddress(
+        [Buffer.from(GLOBAL_AUTHORITY_SEED)],
+        STAKING_PROGRAM_ID,
+    );
+
+   
+    let userTokenAccount = await getAssociatedTokenAccount(userAddress, mint);
+    if (!await isExistAccount(userTokenAccount, solConnection)) {
+        let accountOfNFT = await getNFTTokenAccount(mint, solConnection);
+        if (userTokenAccount.toBase58() != accountOfNFT.toBase58()) {
+            let nftOwner = await getOwnerOfNFT(mint, solConnection);
+            if (nftOwner.toBase58() == userAddress.toBase58()) userTokenAccount = accountOfNFT;
+            else if (nftOwner.toBase58() !== globalAuthority.toBase58()) {
+                throw 'Error: Nft is not owned by user';
+            }
+        }
+    }
+    console.log("NFT = ", mint.toBase58(), userTokenAccount.toBase58());
+
+    let { instructions, destinationAccounts } = await getATokenAccountsNeedCreate(
+        solConnection,
+        userAddress,
+        globalAuthority,
+        [mint]
+    );
+
+    console.log("Dest NFT Account = ", destinationAccounts[0].toBase58())
+
+    const metadata = await getMetadata(mint);
+    console.log(metadata);
+    let data = await getMxMetadata(mint, solConnection);
+    let creators = data.data.creators;
+    console.log(creators[0]);
+    let first_creator = new PublicKey(creators[0].address);
+
+    const [whitelistMintProof, wmbump] = await PublicKey.findProgramAddress(
+        [mint.toBuffer(), farmPool.toBuffer()],
+        STAKING_PROGRAM_ID,
+    );
+    const [whitelistCollectionProof, wcbump] = await PublicKey.findProgramAddress(
+        [first_creator.toBuffer(), farmPool.toBuffer()],
+        STAKING_PROGRAM_ID,
+    );
+
+
+    let remainingAccounts = [
+        {
+            pubkey: whitelistMintProof,
+            isSigner: false,
+            isWritable: true,
+        },
+        {
+            pubkey: whitelistCollectionProof,
+            isSigner: false,
+            isWritable: true,
+        },
+    ];
+
+    
+    let tx = new Transaction();
+
+    if (instructions.length > 0) instructions.map((ix) => tx.add(ix));
+    console.log('==>Staking ...', mint.toBase58());
+
+    tx.add(program.instruction.stakeNftToPool(
+        bump, {
+        accounts: {
+            owner: userAddress,
+            userPool: userPoolKey,
+            farmPool,
+            globalAuthority,
+            userNftTokenAccount: userTokenAccount,
+            destNftTokenAccount: destinationAccounts[0],
+            nftMint: mint,
+            mintMetadata: metadata,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            tokenMetadataProgram: METAPLEX,
+        },
+        remainingAccounts,
+        instructions: [],
+        signers: [],
+    }));
+
+    const { blockhash } = await solConnection.getRecentBlockhash('confirmed');
+    tx.feePayer = payer.publicKey;
+    tx.recentBlockhash = blockhash;
+    payer.signTransaction(tx);
+    let txId = await solConnection.sendTransaction(tx, [(payer as NodeWallet).payer]);
+    await solConnection.confirmTransaction(txId, "confirmed");
+    console.log("Your transaction signature", txId);
+}
+
+
 export const getUserPoolInfo = async (
     userAddress: PublicKey,
 ) => {
